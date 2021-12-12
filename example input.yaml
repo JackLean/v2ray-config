@@ -1,0 +1,156 @@
+# ========================================================================================================================
+#
+# input file is a YAML file. Not having to type quotes and commas is the first big improvement.
+#
+# Second improvement is domain pattern with syntactic sugar. See below.
+#
+# Third improvement is modified regex. See quick introduction in "regex dialect documentation.md".
+# Also see below for examples.
+#
+# Everything else follows v2ray rules. For example, inbound config format is the same as v2ray's inbound format.
+#
+# ========================================================================================================================
+#
+# Domain patterns:
+#
+#     input syntax                  output (v2ray syntax)
+#
+#     en.wikipedia.org              "full:en.wikipedia.org"
+#     + wikipedia.org               "domain:wikipedia.org"
+#     /^..\.wikipedia\.org$/        "regexp:^..\\.wikipedia\\.org$"
+#     //::.wikipedia.org//          "regexp:^[^.][^.]\\.wikipedia\\.org$"
+#
+# /abc/ is identical to v2ray syntax (which in turn is identical to Go's regexp syntax)
+# //abc// is a modified variant of regular expression. See "regex dialect documentation.md".
+#
+#
+#
+#     full:en.wikipedia.org         unchanged
+#     domain:wikipedia.org          unchanged
+#     regexp:^..\.wikipedia\.org$   unchanged
+#     regex:^..\.wikipedia\.org$    error
+#
+# You can also use unsugared syntax. This allows easy migration from unsugared config to sugared config.
+#
+# Even if you don't use sugared syntax at all, using config generator is still a good idea,
+# because it detects typos like the above, which v2ray silently ignores.
+# (Not all typos are detected. More checks will be added in future versions.)
+#
+#
+#
+#     + org                         error
+#     localhost                     error
+#     full:localhost                unchanged
+#
+# If a hostname does not contain dots, it must be explicitly specified as "full:hostname" or "domain:suffix".
+#
+# ========================================================================================================================
+#
+# Domain pattern restrictions:
+#
+# Config generator doesn't support all v2ray hostname patterns. The following outputs cannot be generated:
+#     "wikipedia"
+#     "keyword:wikipedia"
+#     "dotless:wikipedia"
+#     "geosite:wikimedia"
+#     "ext:geosite.dat:wikimedia"
+#
+# Patterns without prefix are a bad idea, you shouldn't use them. They are bad because they are misleading.
+# "en.wikipedia.org" looks like "full:en.wikipedia.org", but in fact it is equivalent to "keyword:en.wikipedia.org".
+#
+# Substring patterns with prefix ("keyword" patterns), dotless patterns and geosite patterns may be
+# supported in the future. For now, you can work around some of them by using regex or modified regex:
+#
+#     input                     output                                  equivalent to
+#     /\.wikipedia\./           "regexp:\\.wikipedia\\."                ".wikipedia."
+#     /\.wikipedia\./           "regexp:\\.wikipedia\\."                "keyword:.wikipedia."
+#     /^[^.]*abc[^.]*$/         "regexp:^[^.]*abc[^.]*$"                "dotless:abc"
+#
+#     //,*.wikipedia.,*//       "regexp:^.*\\.wikipedia\\..*$"          ".wikipedia."
+#     //,*.wikipedia.,*//       "regexp:^.*\\.wikipedia\\..*$"          "keyword:.wikipedia."
+#     //:*abc:*//               "regexp:^[^.]*abc[^.]*$"                "dotless:abc"
+#
+# (It is unclear why v2ray introduced dotless patterns. The only uses I can think of are:
+# matching "localhost", matching some LAN hosts, matching custom-DNS-based dotless domains,
+# or, rarely, matching regular dotless domains like "https://uz./".)
+#
+# ========================================================================================================================
+
+# The following example is equivalent to the default config.json except routing rules are changed.
+
+log:
+  loglevel: warning
+
+inbounds:
+  - port: 1080
+    listen: 127.0.0.1
+
+    tag: socks-inbound
+
+    protocol: socks
+    settings:
+      auth: noauth
+      udp: false
+      ip: 127.0.0.1
+
+    sniffing:
+      enabled: true
+      destOverride: [http, tls]
+
+outbounds:
+  - protocol: freedom
+    settings: {}
+    tag: direct
+
+  - protocol: blackhole
+    settings: {}
+    tag: blocked
+
+routing:
+    domainStrategy: IPOnDemand
+    rules:
+      - type: field
+        outboundTag: direct
+        domain: [boardgames.stackexchange.com]  # block every Stack Exchange, except board games
+      - type: field
+        outboundTag: blocked
+        domain: [+ stackexchange.com]
+
+      - type: field
+        outboundTag: blocked
+        domain:
+          - www.evilwebsite.com                 # block "www.evilwebsite.com"
+          - + github.io                         # block "aaa.github.io", "bbb.github.io", etc as well as "github.io"
+          - full:localhost                      # block myself
+          - domain:edu                          # block every university because they teach evolution
+          - domain:eu                           # make Britain great again
+          - /(face|foot)book/                   # block "facebook.com", "facebook2.com", "footbook.com" and "facebook.github.io"
+          - /^c[a-z]\.wikipedia\.org$/          # block everything from "ca.wikipedia.org" to "cz.wikipedia.org"
+          - //d:.wikipedia.org//                # block everything from "da.wikipedia.org" to "dz.wikipedia.org", plus "d~.wikipedia.org" etc
+          - //minecraft:+forum.com//            # block "minecraftproforum.com", "minecraftcheatforum.com", etc but don't block "minecraft.gameforum.com"
+          - //www. a VERY long name . com//     # block "www.averylongname.com"
+
+dns:
+  hosts:
+    domain:v2fly.org: www.vicemc.net
+
+    domain:github.io: pages.github.com
+    domain:wikipedia.org: www.wikimedia.org
+    domain:shadowsocks.org: electronicsrealm.com
+
+  servers:
+    - 1.1.1.1
+    - { address: 114.114.114.114, port: 53, domains: [geosite:cn] }
+    - 8.8.8.8
+    - localhost
+
+policy:
+  levels:
+    "0": { uplinkOnly: 0, downlinkOnly: 0 }
+  system:
+    statsInboundUplink: false
+    statsInboundDownlink: false
+    statsOutboundUplink: false
+    statsOutboundDownlink: false
+
+other: {}
